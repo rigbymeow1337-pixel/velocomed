@@ -1,4 +1,5 @@
 import os
+import base64
 import asyncio
 from datetime import datetime, timezone, timedelta
 
@@ -10,12 +11,13 @@ from telethon.errors import (
     UsernameInvalidError
 )
 
-# =========================
-# CONFIG
-# =========================
+api_id = int(os.environ["API_ID"])
+api_hash = os.environ["API_HASH"]
 
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
+session_data = base64.b64decode(os.environ["SESSION_B64"])
+
+with open("my_session.session", "wb") as f:
+    f.write(session_data)
 
 client = TelegramClient(
     "my_session",
@@ -29,87 +31,56 @@ client = TelegramClient(
 MSK = timezone(timedelta(hours=3))
 
 
-# =========================
-# USERNAME
-# =========================
-
 def get_msk_username():
-    now = datetime.now(MSK)
-    return f"msk{now.strftime('%H%M')}"
+    return f"msk{datetime.now(MSK).strftime('%H%M')}"
 
 
-async def change_username(username: str):
+async def change_username(username):
     try:
         await client(UpdateUsernameRequest(username=username))
-
-        print(
-            f"[{datetime.now(MSK).strftime('%H:%M:%S')}] "
-            f"Ник изменён → @{username}"
-        )
-
+        print(f"Ник изменён → @{username}")
         return True
 
     except UsernameOccupiedError:
-        print(f"@{username} занят, пробую запасной вариант...")
-
         alt = f"time{username[3:]}"
-
         try:
             await client(UpdateUsernameRequest(username=alt))
-
-            print(
-                f"[{datetime.now(MSK).strftime('%H:%M:%S')}] "
-                f"Ник изменён → @{alt}"
-            )
-
+            print(f"Ник изменён → @{alt}")
             return True
-
         except Exception as e:
-            print(f"Запасной вариант не сработал: {e}")
+            print(f"Запасной вариант: {e}")
             return False
+
+    except FloodWaitError as e:
+        print(f"FloodWait: {e.seconds} сек")
+        await asyncio.sleep(e.seconds + 1)
+        return False
 
     except UsernameInvalidError:
         print(f"Некорректный username: @{username}")
         return False
 
-    except FloodWaitError as e:
-        print(f"FloodWait: ждём {e.seconds} секунд...")
-        await asyncio.sleep(e.seconds + 1)
-        return False
-
     except Exception as e:
-        print(f"Ошибка смены ника: {e}")
+        print(f"Ошибка: {e}")
         return False
 
-
-# =========================
-# MAIN
-# =========================
 
 async def main():
-
     await client.connect()
 
     if not await client.is_user_authorized():
-        print("ОШИБКА: my_session.session не авторизована.")
+        print("SESSION НЕ АВТОРИЗОВАНА")
         return
 
     print("Скрипт запущен.")
-    print("Ник меняется каждую минуту по МСК.")
-    print("Формат: @mskЧЧММ")
-    print()
 
     last_minute = None
 
     while True:
-        now = datetime.now(MSK)
-        current_minute = now.strftime("%H%M")
+        current_minute = datetime.now(MSK).strftime("%H%M")
 
         if current_minute != last_minute:
-            username = get_msk_username()
-
-            await change_username(username)
-
+            await change_username(get_msk_username())
             last_minute = current_minute
 
         await asyncio.sleep(0.2)
